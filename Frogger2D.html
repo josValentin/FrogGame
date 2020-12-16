@@ -1,0 +1,2552 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <script src="m3.js" type="text/javascript"></script>
+</head>
+
+<body onload="start()">
+    <dic> Press R to Reset Game </dic>
+
+    <canvas id="webgl" width="550" height="620">
+        No soporta canvas
+    </canvas>
+
+    <script>
+        var requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame ||
+            window.webkitRequestAnimationFrame || window.msRequestAnimationFrame;
+        window.requestAnimationFrame = requestAnimationFrame;
+
+        var gl;
+        var VERTEX_SOURCE = `#version 300 es
+            
+            in vec2 in_position;
+            in vec3 in_color;
+
+            out vec3 o_color;
+            
+            uniform mat3 u_model;
+            uniform mat3 u_projection;
+
+            void main() {
+                gl_Position = vec4(u_projection * u_model * vec3(in_position , 1) , 1);
+                o_color = in_color;
+            }
+        `;
+
+        var FRAGMENT_SOURCE = `#version 300 es
+            precision highp float;
+            out vec4 color;
+            in vec3 o_color;
+
+            void main() {
+                color = vec4(o_color.xyz , 1.0);
+            }
+        `;
+
+        var program;
+        var vaoPlayer, vaoCarro, vaoPista, vaoVereda, vaoBalsa, vaoTortuga, vaoPasto, vaoMosquito, vaoSerpiente;
+
+        var loc_u_model, loc_u_projection;
+        var mt_proj = [], mt_model = [];
+
+        var canvas, player, inBalsa = false, move = true;
+
+        const ST_GAME = 0, ST_OVER = 1;
+        var state = ST_GAME;
+
+        class Player {
+            constructor(_x, _y, _mesh) {
+                this.x = _x;
+                this.y = _y;
+                this.rotation = 0;
+                this.toDelete = false;
+                this.scale = [0, 0];
+                this.keyspress = [];
+                this.mesh = _mesh;
+
+                window.addEventListener("keydown", this.onKeyDown.bind(this));
+                window.addEventListener("keyup", this.onKeyUp.bind(this));
+            }
+
+            onKeyDown(e) {
+                this.keyspress[e.keyCode] = true;
+            }
+
+            onKeyUp(e) {
+                delete this.keyspress[e.keyCode];
+                move = true;
+            }
+
+            update(dt) {
+                if (this.keyspress[37] & move) { //left
+                    if (this.x <= 50) {
+                        this.rotation = Math.PI * 270 / 180;
+                        move = false;
+                    } else {
+                        this.x -= dt;
+                        this.rotation = Math.PI * 270 / 180;
+                        move = false;
+                    }
+                }
+                if (this.keyspress[38] & move) { //up
+                    if (this.y >= 550) {
+                        this.rotation = Math.PI * 0 / 180;
+                        move = false;
+                    } else {
+                        this.y += dt;
+                        this.rotation = Math.PI * 0 / 180;
+                        move = false;
+                    }
+                }
+
+                if (this.keyspress[39] & move) { //right
+                    if (this.x >= 500) {
+                        this.rotation = Math.PI * 90 / 180;
+                        move = false;
+                    } else {
+                        this.x += dt;
+                        this.rotation = Math.PI * 90 / 180;
+                        move = false;
+                    }
+                }
+
+                if (this.keyspress[40] & move) { //down
+                    if (this.y <= 25) {
+                        this.rotation = Math.PI * 180 / 180;
+                        move = false;
+                    } else {
+                        this.y -= dt;
+                        this.rotation = Math.PI * 180 / 180;
+                        move = false;
+                    }
+                }
+            }
+        }
+
+        class Element {
+            constructor(_isRight, _y, _mesh) {
+                this.isRight = _isRight
+                this.x;
+                this.y = _y;
+                this.rotation = 0;
+                this.scale = [0, 0];
+                this.timeBalsa_MOVE = 0.8;
+                this.currenttimeBalsa = this.timeBalsa_MOVE;
+                this.isNextMove = false;
+                this.mesh = _mesh;
+
+                if (this.isRight == 1) {
+                    this.x = randmNumber(-50, 500);
+                    this.speed = randmNumber(10, 50);
+                } else {
+                    this.x = randmNumber(0, 550);;
+                    this.speed = -randmNumber(10, 50);
+                }
+            }
+
+            update(dt) {
+                this.currenttimeBalsa -= dt;
+                if (this.currenttimeBalsa <= 0) {
+                    this.currenttimeBalsa = this.timeBalsa_MOVE;
+                    this.x += this.speed;
+                    if (this.isRight == true) {
+                        if (this.x >= 550) {
+                            this.isNextMove = true;
+                        }
+
+                    } else {
+                        if (this.x <= -50) {
+                            this.isNextMove = true;
+                        }
+                    }
+                }
+            }
+
+            return() {
+                if (this.isRight == true) {
+                    this.x = -50;
+                    this.speed = randmNumber(10, 50);
+                } else {
+                    this.x = 550;
+                    this.speed = -randmNumber(10, 50);
+                }
+
+                this.isNextMove = false;
+                this.currenttimeBalsa = this.timeBalsa_MOVE;
+            }
+        }
+
+        class Scene {
+            constructor(_x, _y, _mesh) {
+                this.x = _x;
+                this.y = _y;
+                this.rotation = 0;
+                this.scale = [0, 0];
+                this.mesh = _mesh;
+            }
+        }
+
+        class Mosquito {
+            constructor(_x, _y, _mesh) {
+                this.x = _x;
+                this.y = _y;
+                this.rotation = Math.PI * 180 / 180;
+                this.scale = [0, 0];
+                this.timeBalsa_ROTATION = 2;
+                this.currenttimeBalsa = this.timeBalsa_ROTATION;
+                this.isNextMove = false;
+                this.mesh = _mesh;
+            }
+
+            update(dt) {
+                this.currenttimeBalsa -= dt;
+                if (this.currenttimeBalsa <= 0) {
+                    this.currenttimeBalsa = this.timeBalsa_ROTATION;
+                    this.rotation = randmNumber(2, 4);
+                }
+            }
+        }
+
+        class Stage {
+            constructor() {
+                this.childs = [];
+            }
+
+            addChild(child) {
+                this.childs.push(child);
+            }
+
+            removeChild(child) {
+                for (var k = 0; k < this.childs.length; k++) {
+                    var c = this.childs[k];
+                    if (c == child) {
+                        this.childs.splice(k, 1);
+                        break;
+                    }
+                }
+            }
+
+            draw() {
+
+                this.childs.forEach(item => {
+                    var mt_translation = m3.translation(item.x, item.y);
+                    var mt_scale = m3.scaling(item.scale[0], item.scale[1]);
+                    var mt_rotation = m3.rotation(item.rotation);
+
+                    var mt_combined = m3.multiply(mt_translation, mt_rotation);
+                    mt_combined = m3.multiply(mt_combined, mt_scale);
+
+                    gl.bindVertexArray(item.mesh.vao);
+                    gl.uniformMatrix3fv(loc_u_model, false, mt_combined);
+                    gl.drawArrays(gl.TRIANGLES, 0, item.mesh.verticesLength);
+                });
+            }
+
+            clear() {
+                window.removeEventListener("keydown", this.onkeyDown);
+                window.removeEventListener("keyup", this.onkeyUp);
+            }
+        }
+
+        var stage = null;
+
+        function start() {
+            canvas = document.getElementById("webgl");
+            initWebGL(canvas);
+
+            OnConfigureShaders();
+            OnConfiguresModels();
+            OnConfigureGame();
+            OnLoop();
+
+            window.addEventListener("keydown", OnCheckResetGame);
+        }
+
+        function OnCheckResetGame(e) {
+
+            if (e.keyCode == 82) {
+                console.log("Reset Game");
+
+                stage.length = 0;
+                stage.clear();
+                counter = 0;
+                timeBalsa = 1;
+                OnConfigureGame();
+            }
+        }
+
+        function OnConfigureShaders() {
+
+            gl.clearColor(0, 0, 0.8, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            var vertexShader = gl.createShader(gl.VERTEX_SHADER);
+            if (!vertexShader) {
+                console.log("Error create Vertex Shader");
+                return;
+            }
+
+            gl.shaderSource(vertexShader, VERTEX_SOURCE);
+            gl.compileShader(vertexShader);
+            var compiled = gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS);
+            if (!compiled) {
+                var error = gl.getShaderInfoLog(vertexShader);
+                console.log("Error GLSL Vertex " + error);
+                return;
+            }
+            // FRAGMENT SHADER
+            var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+            if (!fragmentShader) {
+                console.log("Error create Fragment Shader");
+                return;
+            }
+            gl.shaderSource(fragmentShader, FRAGMENT_SOURCE);
+            gl.compileShader(fragmentShader);
+            compiled = gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS);
+            if (!compiled) {
+                var error = gl.getShaderInfoLog(vertexShader);
+                console.log("Error GLSL Fragment " + error);
+                return;
+            }
+
+            program = gl.createProgram();
+            if (!program) {
+                return;
+            }
+
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+
+            var linked = gl.getProgramParameter(program, gl.LINK_STATUS);
+            if (!linked) {
+                var error = gl.getProgramInfoLog(program);
+                console.log("Error Link " + error);
+            }
+            gl.useProgram(program);
+
+            in_position = gl.getAttribLocation(program, "in_position");
+            if (in_position < 0) {
+                console.log("Error Get Location in_position");
+                return;
+            }
+
+            in_color = gl.getAttribLocation(program, "in_color");
+            if (in_color < 0) {
+                console.log("Error Get Location in_color");
+                return;
+            }
+
+            loc_u_model = gl.getUniformLocation(program, "u_model");
+            loc_u_projection = gl.getUniformLocation(program, "u_projection");
+        }
+
+        function OnConfiguresModels() {
+            // Model 1 (Player)
+            vaoPlayer = gl.createVertexArray();
+            gl.bindVertexArray(vaoPlayer);
+
+            var vertices = new Float32Array(
+                [//cuerpo
+                    -0.2, 0.4,
+                    -0.2, 0.3,
+                    0.2, 0.4,
+
+                    -0.2, 0.3,
+                    0.2, 0.3,
+                    0.2, 0.4,
+
+                    -0.3, 0.3,
+                    -0.3, -0.3,
+                    0.3, 0.3,
+
+                    -0.3, -0.3,
+                    0.3, -0.3,
+                    0.3, 0.3,
+
+                    -0.2, -0.4,
+                    -0.2, -0.3,
+                    0.2, -0.4,
+
+                    -0.2, -0.3,
+                    0.2, -0.3,
+                    0.2, -0.4,
+
+                    //brazo izquierdo
+                    -0.5, 0.1,
+                    -0.5, 0,
+                    -0.3, 0.1,
+
+                    -0.5, 0,
+                    -0.3, 0,
+                    -0.3, 0.1,
+
+                    -0.5, 0.4,
+                    -0.5, 0.1,
+                    -0.4, 0.4,
+
+                    -0.5, 0.1,
+                    -0.4, 0.1,
+                    -0.4, 0.4,
+
+                    -0.6, 0.3,
+                    -0.6, 0.2,
+                    -0.5, 0.3,
+
+                    -0.6, 0.2,
+                    -0.5, 0.2,
+                    -0.5, 0.3,
+
+                    //brazo derecho
+                    0.3, 0.1,
+                    0.3, 0,
+                    0.5, 0.1,
+
+                    0.3, 0,
+                    0.5, 0,
+                    0.5, 0.1,
+
+                    0.4, 0.4,
+                    0.4, 0.1,
+                    0.5, 0.4,
+
+                    0.4, 0.1,
+                    0.5, 0.1,
+                    0.5, 0.4,
+
+                    0.5, 0.3,
+                    0.5, 0.2,
+                    0.6, 0.3,
+
+                    0.5, 0.2,
+                    0.6, 0.2,
+                    0.6, 0.3,
+
+                    //pierna izquierda
+                    -0.5, -0.2,
+                    -0.5, -0.1,
+                    -0.3, -0.2,
+
+                    -0.5, -0.1,
+                    -0.3, -0.1,
+                    -0.3, -0.2,
+
+                    -0.5, -0.5,
+                    -0.5, -0.2,
+                    -0.4, -0.5,
+
+                    -0.5, -0.2,
+                    -0.4, -0.2,
+                    -0.4, -0.5,
+
+                    -0.6, -0.4,
+                    -0.6, -0.3,
+                    -0.5, -0.4,
+
+                    -0.6, -0.3,
+                    -0.5, -0.3,
+                    -0.5, -0.4,
+
+                    //pierna derecha
+                    0.3, -0.2,
+                    0.3, -0.1,
+                    0.5, -0.2,
+
+                    0.3, -0.1,
+                    0.5, -0.1,
+                    0.5, -0.2,
+
+                    0.4, -0.5,
+                    0.4, -0.2,
+                    0.5, -0.5,
+
+                    0.4, -0.2,
+                    0.5, -0.2,
+                    0.5, -0.5,
+
+                    0.5, -0.4,
+                    0.5, -0.3,
+                    0.6, -0.4,
+
+                    0.5, -0.3,
+                    0.6, -0.3,
+                    0.6, -0.4,
+
+                    //ojo izquierdo
+                    -0.3, 0.3,
+                    -0.3, 0.2,
+                    -0.2, 0.3,
+
+                    -0.3, 0.2,
+                    -0.2, 0.2,
+                    -0.2, 0.3,
+
+                    //ojo derecho
+                    0.3, 0.3,
+                    0.3, 0.2,
+                    0.2, 0.3,
+
+                    0.3, 0.2,
+                    0.2, 0.2,
+                    0.2, 0.3,
+
+                    //manchas
+                    -0.2, 0.4,
+                    -0.2, 0.3,
+                    -0.1, 0.4,
+
+                    -0.2, 0.3,
+                    -0.1, 0.3,
+                    -0.1, 0.4,
+
+                    0, 0.4,
+                    0, 0.3,
+                    0.2, 0.4,
+
+                    0, 0.3,
+                    0.2, 0.3,
+                    0.2, 0.4,
+
+                    -0.1, 0.3,
+                    -0.1, 0.1,
+                    0.1, 0.3,
+
+                    -0.1, 0.1,
+                    0.1, 0.1,
+                    0.1, 0.3,
+
+                    -0.3, 0.1,
+                    -0.3, 0,
+                    0.3, 0.1,
+
+                    -0.3, 0,
+                    0.3, 0,
+                    0.3, 0.1,
+
+                    -0.3, 0,
+                    -0.3, -0.2,
+                    -0.2, 0,
+
+                    -0.3, -0.2,
+                    -0.2, -0.2,
+                    -0.2, 0,
+
+                    -0.1, 0,
+                    -0.1, -0.2,
+                    0.3, 0,
+
+                    -0.1, -0.2,
+                    0.3, -0.2,
+                    0.3, 0,
+
+                    -0.2, -0.2,
+                    -0.2, -0.3,
+                    -0.1, -0.2,
+
+                    -0.2, -0.3,
+                    -0.1, -0.3,
+                    -0.1, -0.2,
+
+                    0, -0.2,
+                    0, -0.3,
+                    0.2, -0.2,
+
+                    0, -0.3,
+                    0.2, -0.3,
+                    0.2, -0.2,
+
+                    -0.1, -0.3,
+                    -0.1, -0.4,
+                    0.1, -0.3,
+
+                    -0.1, -0.4,
+                    0.1, -0.4,
+                    0.1, -0.3
+                ]);
+
+            var vboPositions = gl.createBuffer();
+            if (!vboPositions) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            var colors = new Float32Array(
+                [   //cuerpo
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    //brazo izquierdo
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    //brazo derecho
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    //pierna izquierda
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    //pierna derecha
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    //ojo izquierdo
+                    1, 0, 0,
+                    1, 0, 0,
+                    1, 0, 0,
+
+                    1, 0, 0,
+                    1, 0, 0,
+                    1, 0, 0,
+
+                    //ojo derecho
+                    1, 0, 0,
+                    1, 0, 0,
+                    1, 0, 0,
+
+                    1, 0, 0,
+                    1, 0, 0,
+                    1, 0, 0,
+
+                    //manchas
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0
+                ]);
+
+            var vboColors = gl.createBuffer();
+            if (!vboColors) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors);
+            gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+            // MODELO 2 (carrito)
+            vaoCarro = gl.createVertexArray();
+            gl.bindVertexArray(vaoCarro);
+
+            var vertices2 = new Float32Array(
+                [
+
+                    //Cuerpo
+                    -0.8, 0.5,
+                    -0.8, -0.5,
+                    0.8, -0.5,
+
+                    -0.8, 0.5,
+                    0.8, -0.5,
+                    0.8, 0.5,
+
+                    -0.5, 0.4,
+                    -0.5, -0.4,
+                    0.7, -0.4,
+
+                    -0.5, 0.4,
+                    0.7, -0.4,
+                    0.7, 0.4,
+
+                    //Rueda arriba/izquierda
+                    -0.6, 0.7,
+                    -0.6, 0.5,
+                    -0.1, 0.5,
+
+                    -0.6, 0.7,
+                    -0.1, 0.5,
+                    -0.1, 0.7,
+
+                    -0.45, 0.7,
+                    -0.45, 0.5,
+                    -0.25, 0.5,
+
+                    -0.45, 0.7,
+                    -0.25, 0.5,
+                    -0.25, 0.7,
+                    //Rueda arriba/derecha
+                    0.6, 0.7,
+                    0.6, 0.5,
+                    0.1, 0.5,
+
+                    0.6, 0.7,
+                    0.1, 0.5,
+                    0.1, 0.7,
+
+                    0.45, 0.7,
+                    0.45, 0.5,
+                    0.25, 0.5,
+
+                    0.45, 0.7,
+                    0.25, 0.5,
+                    0.25, 0.7,
+                    //Rueda abajo/izquierda
+                    -0.6, -0.7,
+                    -0.6, -0.5,
+                    -0.1, -0.5,
+
+                    -0.6, -0.7,
+                    -0.1, -0.5,
+                    -0.1, -0.7,
+
+                    -0.45, -0.7,
+                    -0.45, -0.5,
+                    -0.25, -0.5,
+
+                    -0.45, -0.7,
+                    -0.25, -0.5,
+                    -0.25, -0.7,
+                    //Rueda abajo/derecha
+                    0.6, -0.7,
+                    0.6, -0.5,
+                    0.1, -0.5,
+
+                    0.6, -0.7,
+                    0.1, -0.5,
+                    0.1, -0.7,
+
+                    0.45, -0.7,
+                    0.45, -0.5,
+                    0.25, -0.5,
+
+                    0.45, -0.7,
+                    0.25, -0.5,
+                    0.25, -0.7,
+
+                    //Luz arriba
+                    -0.8, 0.4,
+                    -0.8, 0.2,
+                    -0.65, 0.2,
+
+                    -0.8, 0.4,
+                    -0.65, 0.2,
+                    -0.65, 0.4,
+
+                    //Luz abajo
+
+                    -0.8, -0.4,
+                    -0.8, -0.2,
+                    -0.65, -0.2,
+
+                    -0.8, -0.4,
+                    -0.65, -0.2,
+                    -0.65, -0.4,
+
+                ]);
+
+            var vboPositions2 = gl.createBuffer();
+            if (!vboPositions2) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions2);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices2, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors2 = new Float32Array(
+                [
+                    //Cuerpo
+                    1, 0.15, 0,
+                    1, 0.15, 0,
+                    1, 0.15, 0,
+
+                    1, 0.15, 0,
+                    1, 0.15, 0,
+                    1, 0.15, 0,
+
+                    1, 0.3, 0,
+                    1, 0.3, 0,
+                    1, 0.3, 0,
+
+                    1, 0.3, 0,
+                    1, 0.3, 0,
+                    1, 0.3, 0,
+
+                    //Ruedas
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    //
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+
+                    //
+
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+
+                    //
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+                    0.15, 0.15, 0.15,
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+                    0.3, 0.3, 0.3,
+
+
+                    //Luces
+                    1, 1, 0.2,
+                    1, 1, 0.2,
+                    1, 1, 0.2,
+
+
+                    1, 1, 0.2,
+                    1, 1, 0.2,
+                    1, 1, 0.2,
+
+                    1, 1, 0.2,
+                    1, 1, 0.2,
+                    1, 1, 0.2,
+
+
+                    1, 1, 0.2,
+                    1, 1, 0.2,
+                    1, 1, 0.2
+
+                ]);
+
+            var vboColors2 = gl.createBuffer();
+            if (!vboColors2) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors2);
+            gl.bufferData(gl.ARRAY_BUFFER, colors2, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+
+            // MODELO 3 (pista)
+            vaoPista = gl.createVertexArray();
+            gl.bindVertexArray(vaoPista);
+
+            var vertices3 = new Float32Array(
+                [-0.5, 0.5,
+                -0.5, -0.5,
+                    0.5, -0.5,
+
+                -0.5, 0.5,
+                    0.5, -0.5,
+                    0.5, 0.5
+                ]);
+
+            var vboPositions3 = gl.createBuffer();
+            if (!vboPositions3) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions3);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices3, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors3 = new Float32Array(
+                [
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+                ]);
+
+            var vboColors3 = gl.createBuffer();
+            if (!vboColors3) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors3);
+            gl.bufferData(gl.ARRAY_BUFFER, colors3, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+            // MODELO 4 (vereda) 
+            vaoVereda = gl.createVertexArray();
+            gl.bindVertexArray(vaoVereda);
+
+            var vertices4 = new Float32Array(
+                [-0.5, 0.5,
+                -0.5, -0.5,
+                    0.5, 0.5,
+
+                -0.5, -0.5,
+                    0.5, -0.5,
+                    0.5, 0.5,
+
+                -0.5, 0.3,
+                -0.5, 0.1,
+                    0.5, 0.3,
+
+                -0.5, 0.1,
+                    0.5, 0.1,
+                    0.5, 0.3,
+
+                -0.5, -0.1,
+                -0.5, -0.3,
+                    0.5, -0.1,
+
+                -0.5, -0.3,
+                    0.5, -0.3,
+                    0.5, -0.1,
+
+                -0.3, 0.5,
+                -0.3, -0.5,
+                -0.1, 0.5,
+
+                -0.3, -0.5,
+                -0.1, -0.5,
+                -0.1, 0.5,
+
+                    0.1, 0.5,
+                    0.1, -0.5,
+                    0.3, 0.5,
+
+                    0.1, -0.5,
+                    0.3, -0.5,
+                    0.3, 0.5,
+                ]);
+
+            var vboPositions4 = gl.createBuffer();
+            if (!vboPositions4) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions4);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices4, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors4 = new Float32Array(
+                [
+                    0.5, 0.1, 0.5,
+                    0.5, 0.1, 0.5,
+                    0.5, 0.1, 0.5,
+
+                    0.5, 0.1, 0.5,
+                    0.5, 0.1, 0.5,
+                    0.5, 0.1, 0.5,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2,
+                    0.2, 0.1, 0.2
+                ]);
+
+            var vboColors4 = gl.createBuffer();
+            if (!vboColors4) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors4);
+            gl.bufferData(gl.ARRAY_BUFFER, colors4, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+            //Modelo 5 (Balsa)
+            vaoBalsa = gl.createVertexArray();
+            gl.bindVertexArray(vaoBalsa);
+
+            var vertices5 = new Float32Array(
+                [0, 0,
+                    1, 0,
+                    1, -0.1,
+
+                    0, 0,
+                    0, -0.1,
+                    1, -0.1,
+
+                    0, -0.1,
+                    1, -0.1,
+                    1, -0.2,
+
+                    0, -0.1,
+                    0, -0.2,
+                    1, -0.2,
+
+                    0, -0.2,
+                    1, -0.2,
+                    1, -0.3,
+
+                    0, -0.2,
+                    0, -0.3,
+                    1, -0.3,
+
+                    0, -0.3,
+                    1, -0.3,
+                    1, -0.4,
+
+                    0, -0.3,
+                    0, -0.4,
+                    1, -0.4,
+
+                    0, -0.4,
+                    1, -0.4,
+                    1, -0.5,
+
+                    0, -0.4,
+                    0, -0.5,
+                    1, -0.5,
+
+                    0, -0.5,
+                    1, -0.5,
+                    1, -0.6,
+
+                    0, -0.5,
+                    0, -0.6,
+                    1, -0.6,
+                    //repetir
+                    0, -0.6,
+                    1, -0.6,
+                    1, -0.7,
+
+                    0, -0.6,
+                    0, -0.7,
+                    1, -0.7,
+
+                    0, -0.7,
+                    1, -0.7,
+                    1, -0.8,
+
+                    0, -0.7,
+                    0, -0.8,
+                    1, -0.8,
+
+                    0, -0.8,
+                    1, -0.8,
+                    1, -0.9,
+
+                    0, -0.8,
+                    0, -0.9,
+                    1, -0.9,
+
+                    0, -0.9,
+                    1, -0.9,
+                    1, -1,
+
+                    0, -0.9,
+                    0, -1,
+                    1, -1,
+
+                    0, -1,
+                    1, -1,
+                    1, -1.1,
+
+                    0, -1,
+                    0, -1.1,
+                    1, -1.1,
+
+                    0, -1.1,
+                    1, -1.1,
+                    1, -1.2,
+
+                    0, -1.1,
+                    0, -1.2,
+                    1, -1.2,
+                ]);
+
+            var vboPositions5 = gl.createBuffer();
+            if (!vboPositions5) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions5);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices5, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors5 = new Float32Array(
+                [0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+                    0.9, 0.66, 0.5,
+
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+                    0.8, 0.5, 0.33,
+
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+                    0.6, 0.4, 0.2,
+
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+                    0.5, 0.3, 0.2,
+
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                    0.4, 0.25, 0.2,
+                ]);
+
+            var vboColors5 = gl.createBuffer();
+            if (!vboColors5) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors5);
+            gl.bufferData(gl.ARRAY_BUFFER, colors5, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+            //Modelo 6 (Tortuga)
+            vaoTortuga = gl.createVertexArray();
+            gl.bindVertexArray(vaoTortuga);
+
+            var vertices6 = new Float32Array(
+                [ //Caparazón
+                0, 0,
+                0, -0.5,
+                0.5, -0.5,
+
+                0, 0,
+                0.5, -0.5,
+                0.5, 0,
+
+                0.5, 1,
+                0.5, -0.5,
+                1, -0.5,
+
+                0.5, 1,
+                1, -0.5,
+                1, 1,
+
+                1, 2,
+                1, -0.5,
+                1.5, -0.5,
+
+                1, 2,
+                1.5, -0.5,
+                1.5, 2,
+
+                1.5, 2.5,
+                1.5, -0.5,
+                2.5, -0.5,
+
+                1.5, 2.5,
+                2.5, -0.5,
+                2.5, 2.5, 
+
+                2.5, 3,
+                2.5, -0.5,
+                4.5, -0.5,
+
+                2.5, 3,
+                4.5, -0.5,
+                4.5, 3,
+
+                4.5, 2.5,
+                4.5, -0.5,
+                5.5, -0.5,
+
+                4.5, 2.5,
+                5.5, -0.5,
+                5.5, 2.5, 
+
+                5.5, 1.5,
+                5.5, -0.5,
+                6.5, -0.5,
+
+                5.5, 1.5,
+                6.5, -0.5,
+                6.5, 1.5,
+
+                6.5, 0,
+                6.5, -0.5,
+                7, -0.5,
+
+                6.5, 0,
+                7, -0.5,
+                7, 0,
+
+                //Cabeza
+                6.5, 1.5,
+                6.5, 0,
+                8, 0,
+
+                6.5, 1.5,
+                8, 0,
+                8, 1.5,
+
+                8, 1.5,
+                8, 0,
+                9, 0,
+
+                8, 1.5,
+                9, 0,
+                9, 1.5,
+
+                9, 1.5,
+                9, 0.5,
+                9.5, 0.5,
+
+                9, 1.5,
+                9.5, 0.5,
+                9.5, 1.5,
+
+                7, 2,
+                7, 1.5,
+                9, 1.5,
+
+                7, 2,
+                9, 1.5,
+                9, 2,
+
+                //Ojo
+                8, 1.5,
+                8, 1,
+                8.5, 1,
+
+                8, 1.5,
+                8.5, 1,
+                8.5, 1.5
+                ]);
+
+            var vboPositions6 = gl.createBuffer();
+            if (!vboPositions6) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions6);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices6, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors6 = new Float32Array(
+                [ //Caparazón
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                0, 0.5, 0,
+                0, 0.5, 0,
+                0, 0.5, 0,
+
+                //Cabeza
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+
+                0, 0, 0,
+                0, 0, 0,
+                0, 0, 0,
+
+                0, 0, 0,
+                0, 0, 0,
+                0, 0, 0
+                ]);
+
+            var vboColors6 = gl.createBuffer();
+            if (!vboColors6) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors6);
+            gl.bufferData(gl.ARRAY_BUFFER, colors6, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+            // MODELO 7 (pasto) 
+            vaoPasto = gl.createVertexArray();
+            gl.bindVertexArray(vaoPasto);
+
+            var vertices7 = new Float32Array(
+                [-0.9, 0.5,
+                -0.9, 0,
+                    0.9, 0.5,
+
+                -0.9, 0,
+                    0.9, 0,
+                    0.9, 0.5,
+
+                -0.9, 0.1,
+                -0.9, 0.05,
+                    0.9, 0.1,
+
+                -0.9, 0.05,
+                    0.9, 0.05,
+                    0.9, 0.1,
+
+                -0.9, 0.2,
+                -0.9, 0.15,
+                    0.9, 0.2,
+
+                -0.9, 0.15,
+                    0.9, 0.15,
+                    0.9, 0.2,
+
+                -0.9, 0,
+                -0.9, -0.5,
+                -0.3, 0,
+
+                -0.9, -0.5,
+                -0.3, -0.5,
+                -0.3, 0,
+
+                -0.8, -0.1,
+                -0.8, -0.4,
+                -0.4, -0.1,
+
+                -0.8, -0.4,
+                -0.4, -0.4,
+                -0.4, -0.1,
+
+                -0.7, -0.2,
+                -0.7, -0.3,
+                -0.5, -0.2,
+
+                -0.7, -0.3,
+                -0.5, -0.3,
+                -0.5, -0.2,
+
+                    0.3, 0,
+                    0.3, -0.5,
+                    0.9, 0,
+
+                    0.3, -0.5,
+                    0.9, -0.5,
+                    0.9, 0,
+
+                    0.8, -0.1,
+                    0.8, -0.4,
+                    0.4, -0.1,
+
+                    0.8, -0.4,
+                    0.4, -0.4,
+                    0.4, -0.1,
+
+                    0.7, -0.2,
+                    0.7, -0.3,
+                    0.5, -0.2,
+
+                    0.7, -0.3,
+                    0.5, -0.3,
+                    0.5, -0.2,
+                ]);
+
+            var vboPositions7 = gl.createBuffer();
+            if (!vboPositions7) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions7);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices7, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors7 = new Float32Array(
+                [
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+                    0, 0.3, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+
+                    0, 0.6, 0,
+                    0, 0.6, 0,
+                    0, 0.6, 0
+                ]);
+
+            var vboColors7 = gl.createBuffer();
+            if (!vboColors7) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors7);
+            gl.bufferData(gl.ARRAY_BUFFER, colors7, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+            // MODELO 8 (mosquito) 
+            vaoMosquito = gl.createVertexArray();
+            gl.bindVertexArray(vaoMosquito);
+
+            var vertices8 = new Float32Array(
+                [   //cuerpo
+                    -0.1, 0.2,
+                    -0.1, -0.05,
+                    0.1, 0.2,
+
+                    -0.1, -0.05,
+                    0.1, -0.05,
+                    0.1, 0.2,
+
+                    -0.1, -0.05,
+                    -0.1, -0.3,
+                    0.1, -0.05,
+
+                    -0.1, -0.3,
+                    0.1, -0.3,
+                    0.1, -0.05,
+
+                    -0.05, -0.3,
+                    -0.05, -0.35,
+                    0.05, -0.3,
+
+                    -0.05, -0.35,
+                    0.05, -0.35,
+                    0.05, -0.3,
+
+                    //antenas
+                    -0.15, 0.25,
+                    -0.15, 0.2,
+                    -0.05, 0.25,
+
+                    -0.15, 0.2,
+                    -0.05, 0.2,
+                    -0.05, 0.25,
+
+                    0.15, 0.25,
+                    0.15, 0.2,
+                    0.05, 0.25,
+
+                    0.15, 0.2,
+                    0.05, 0.2,
+                    0.05, 0.25,
+
+                    -0.15, 0.35,
+                    -0.15, 0.25,
+                    -0.1, 0.35,
+
+                    -0.15, 0.25,
+                    -0.1, 0.25,
+                    -0.1, 0.35,
+
+                    0.15, 0.35,
+                    0.15, 0.25,
+                    0.1, 0.35,
+
+                    0.15, 0.25,
+                    0.1, 0.25,
+                    0.1, 0.35,
+
+                    //alas
+                    -0.2, 0.1,
+                    -0.2, -0.2,
+                    -0.1, 0.1,
+
+                    -0.2, -0.2,
+                    -0.1, -0.2,
+                    -0.1, 0.1,
+
+                    -0.3, 0,
+                    -0.3, -0.2,
+                    -0.2, 0,
+
+                    -0.3, -0.2,
+                    -0.2, -0.2,
+                    -0.2, 0,
+
+                    -0.4, -0.1,
+                    -0.4, -0.2,
+                    -0.3, -0.1,
+
+                    -0.4, -0.2,
+                    -0.3, -0.2,
+                    -0.3, -0.1,
+
+                    0.2, 0.1,
+                    0.2, -0.2,
+                    0.1, 0.1,
+
+                    0.2, -0.2,
+                    0.1, -0.2,
+                    0.1, 0.1,
+
+                    0.3, 0,
+                    0.3, -0.2,
+                    0.2, 0,
+
+                    0.3, -0.2,
+                    0.2, -0.2,
+                    0.2, 0,
+
+                    0.4, -0.1,
+                    0.4, -0.2,
+                    0.3, -0.1,
+
+                    0.4, -0.2,
+                    0.3, -0.2,
+                    0.3, -0.1
+                ]);
+
+            var vboPositions8 = gl.createBuffer();
+            if (!vboPositions8) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions8);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices8, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors8 = new Float32Array(
+                [   //cuerpo
+                    0.85, 0, 0,
+                    0.85, 0, 0,
+                    0.85, 0, 0,
+
+                    0.85, 0, 0,
+                    0.85, 0, 0,
+                    0.85, 0, 0,
+
+                    0.8, 0.5, 0.1,
+                    0.8, 0.5, 0.1,
+                    0.8, 0.5, 0.1,
+
+                    0.8, 0.5, 0.1,
+                    0.8, 0.5, 0.1,
+                    0.8, 0.5, 0.1,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    //antenas
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    0, 0, 0,
+                    0, 0, 0,
+                    0, 0, 0,
+
+                    //alas
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8,
+                    0.2, 0.8, 0.8
+                ]);
+
+            var vboColors8 = gl.createBuffer();
+            if (!vboColors8) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors8);
+            gl.bufferData(gl.ARRAY_BUFFER, colors8, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+
+            // MODELO 9 (serpiente)
+            vaoSerpiente = gl.createVertexArray();
+            gl.bindVertexArray(vaoSerpiente);
+
+            var vertices9 = new Float32Array(
+                [
+
+                    -0.8, 0.2,
+                    -0.8, -0.2,
+                    0.8, -0.2,
+
+                    -0.8, 0.2,
+                    0.8, -0.2,
+                    0.8, 0.2,
+
+                    -2.0, -0.2,
+                    -2.0, -0.6,
+                    -0.4, -0.6,
+
+                    -2.0, -0.2,
+                    -0.4, -0.6,
+                    -0.4, -0.2,
+
+                    -3.6, 0.2,
+                    -3.6, -0.2,
+                    -1.6, -0.2,
+
+                    -3.6, 0.2,
+                    -1.6, -0.2,
+                    -1.6, 0.2,
+
+                    -5.0, -0.2,
+                    -5.0, -0.6,
+                    -3.1, -0.6,
+
+                    -5.0, -0.2,
+                    -3.1, -0.6,
+                    -3.1, -0.2,
+                    //cuello
+                    -5.2, 0,
+                    -5.2, -0.4,
+                    -5.0, -0.4,
+
+                    -5.2, 0,
+                    -5.0, -0.4,
+                    -5.0, 0,
+
+                    //Cabeza
+
+                    -6.2, 0.2,
+                    -6.2, -0.6,
+                    -5.2, -0.6,
+
+                    -6.2, 0.2,
+                    -5.2, -0.6,
+                    -5.2, 0.2,
+                    //Lengua
+                    -6.4, -0.1,
+                    -6.4, -0.3,
+                    -6.2, -0.3,
+
+                    -6.4, -0.1,
+                    -6.2, -0.3,
+                    -6.2, -0.1,
+
+
+
+                ]);
+
+            var vboPositions9 = gl.createBuffer();
+            if (!vboPositions9) {
+                console.log("Error Create Vertex Buffer");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions9);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices9, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_position, 2, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_position);
+
+            // VBO para colores
+            var colors9 = new Float32Array(
+                [
+                    //Cuerpo
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    //
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+                    //
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+                    //
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+                    0, 0.5, 0,
+                    //cuello
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+
+                    1, 1, 0,
+                    1, 1, 0,
+                    1, 1, 0,
+                    //cabeza
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+
+                    0, 1, 0,
+                    0, 1, 0,
+                    0, 1, 0,
+                    //Lengua
+                    1, 0, 0,
+                    1, 0, 0,
+                    1, 0, 0,
+
+                    1, 0, 0,
+                    1, 0, 0,
+                    1, 0, 0
+
+
+
+
+                ]);
+
+            var vboColors9 = gl.createBuffer();
+            if (!vboColors9) {
+                console.log("Error create VBO Colors");
+                return;
+            }
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboColors9);
+            gl.bufferData(gl.ARRAY_BUFFER, colors9, gl.STATIC_DRAW);
+
+            gl.vertexAttribPointer(in_color, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(in_color);
+        }
+
+        function OnConfigureGame() {
+            stage = new Stage();
+
+            pista = new Scene(275, 140, { vao: vaoPista, verticesLength: 6 });
+            pista.scale[0] = 550;
+            pista.scale[1] = 225;
+            stage.addChild(pista);
+
+            pastos = [];
+            for (var i = 0; i < 5; i++) {
+                pasto = new Scene(75 + (i * 100), 600, { vao: vaoPasto, verticesLength: 54 });
+                pasto.scale[0] = 85;
+                pasto.scale[1] = 100;
+                pastos[i] = pasto;
+                stage.addChild(pasto);
+            }
+
+            veredas = [];
+            for (var i = 0; i < 2; i++) {
+                for (var j = 0; j < 14; j++) {
+                    vereda = new Scene(25 + (j * 40), 25 + (i * 250), { vao: vaoVereda, verticesLength: 30 });              
+                    vereda.scale[0] = 50;
+                    vereda.scale[1] = 50;
+                    veredas[14 * i + j] = vereda;
+                    stage.addChild(vereda);
+                }
+            }
+
+            balsas = [];
+            for (var i = 0; i < 3; i++) {
+                balsa = new Element(0, (i * 100) + 340, { vao: vaoBalsa, verticesLength: 72 });
+                balsa.scale[0] = 70;
+                balsa.scale[1] = 30;
+                balsas[i] = balsa;
+                stage.addChild(balsa);
+            }
+
+            tortugas = [];
+            for (var i = 0; i < 2; i++) {
+                tortuga = new Element(1, (i * 100) + 360, { vao: vaoTortuga, verticesLength: 78 });
+                tortuga.scale[0] = 10;
+                tortuga.scale[1] = 10;
+                balsas[3 + i] = tortuga;
+                stage.addChild(tortuga);
+            }
+
+            mosquitos = [];
+            for (var i = 0; i < 5; i++) {
+                mosquito = new Mosquito(75 + (i * 100), 575, { vao: vaoMosquito, verticesLength: 78 });
+                mosquito.scale[0] = 50;
+                mosquito.scale[1] = 50;
+                mosquitos[i] = mosquito;
+                stage.addChild(mosquito);
+            }
+
+            serpientes = [];
+            for (var i = 0; i < 2; i++) {
+                serpiente = new Element(randmNumber(0, 1), -i * 23 + 288, { vao: vaoSerpiente, verticesLength: 72 });
+                if (serpiente.isRight == 1) {
+                    serpiente.scale[0] = -15;
+
+                } else {
+                    serpiente.scale[0] = 15;
+
+                }
+
+                serpiente.scale[1] = 15;
+                serpientes[i] = serpiente;
+                stage.addChild(serpiente);
+            }
+
+            carros = [];
+            for (var i = 0; i < 4; i++) {
+                carro = new Element(randmNumber(0, 1), -i * 50 + 230, { vao: vaoCarro, verticesLength: 72 });
+                if (carro.isRight == 1) {
+                    carro.scale[0] = -27;
+
+                } else {
+                    carro.scale[0] = 27;
+
+                }
+                carro.scale[1] = 27;
+                carros[i] = carro;
+                stage.addChild(carro);
+            }
+
+            player = new Player(275, 25, { vao: vaoPlayer, verticesLength: 156 });
+            player.scale[0] = 25;
+            player.scale[1] = 25;
+            stage.addChild(player);
+
+            // Iniciando Matrices
+            mt_proj = m3.projection(canvas.clientWidth, canvas.clientHeight);
+            mt_model = m3.identity();
+
+            state = ST_GAME;
+        }
+
+        var timeBalsa = 1;
+        var counter = 0;
+        var timeSerpiente = 1;
+        var AnimYSerp = true;
+
+        function OnLoop() {
+            gl.clearColor(0, 0, 0.8, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            if (state == ST_GAME) {
+
+                //Para las colisiones
+
+                carros.forEach(carro => {
+                    carro.update(0.1);
+
+                    if (carro.isNextMove) {
+                        carro.return();
+                    }
+
+                    if (player != null) {
+
+                        var PX = player.x;
+                        var PY = player.y;
+                        var EX = carro.x
+                        var EY = carro.y
+
+                        player.update(50);
+
+                        //Detecta colision 
+                        if (distance(PX, PY, EX, EY) < 35) {
+                            stage.removeChild(player);
+                            player = null;
+                            console.log("Te atropellaron, reinicia con R");
+                            state = ST_OVER;
+                        }
+                    }
+                })
+
+                balsas.forEach(balsa => {
+                    balsa.update(0.1);
+
+                    if (player != null) {
+                        var dx = player.x - (balsa.x + 45);
+                        var dy = player.y - balsa.y;
+
+                        if (balsa.isNextMove) {
+                            balsa.return();
+                        }
+
+                        //Detecta colision
+                        if (Math.abs(dx) <= 60 && Math.abs(dy) <= 20) {
+                            inBalsa = true;
+                            player.x = balsa.x + 32;
+                        } else {
+                            inBalsa = false;
+                        }
+
+                        if (inBalsa && player.y - 200 > 100) {
+
+                            timeBalsa = 1;
+                        }
+                        if (!inBalsa && player.y - 200 > 100 && player.y - 200 < 370) {
+
+                            timeBalsa -= 0.025;
+                        }
+
+                        if (timeBalsa < 0) {
+                            stage.removeChild(player);
+                            player = null;
+                            console.log("Te ahogaste, reinicia con R");
+                            state = ST_OVER;
+                        }
+                    }
+                })
+
+                mosquitos.forEach((mosquito, i) => {
+                    mosquito.update(0.1);
+
+                    if (mosquito.isNextMove) {
+                        mosquito.return();
+                    }
+
+                    if (player != null) {
+
+                        var PX = player.x;
+                        var PY = player.y;
+                        var MX = mosquito.x;
+                        var MY = mosquito.y;
+
+                        player.update(50);
+
+                        if (distance(PX, PY, MX, MY) < 35) {
+                            stage.removeChild(mosquito);
+                            mosquitos.splice(i, 1);
+                            player.x = 275;
+                            player.y = 25;
+                            player.rotation = Math.PI * 0 / 180;
+                            counter++;
+                            timeBalsa = 3;
+                            console.log("Mosquitos: " + counter)
+                        }
+
+                        if (counter == 5) {
+                            console.log("¡Ganaste!");
+                            state = ST_OVER;
+                        }
+                    }
+                })
+
+                serpientes.forEach(serpiente => {
+                    serpiente.update(0.1);
+
+                    if (player != null) {
+                        var PX = player.x;
+                        var PY = player.y;
+
+
+                        if (serpiente.isRight == 0) {
+                            var SX = serpiente.x - 60;
+                            var SY = serpiente.y;
+                        } else {
+                            var SX = serpiente.x + 80;
+                            var SY = serpiente.y;
+                        }
+
+                        if (timeSerpiente < 0) {
+                            if (AnimYSerp) {
+                                AnimYSerp = false
+
+                            } else {
+                                AnimYSerp = true
+
+                            }
+                            timeSerpiente = 1
+                        } else {
+                            timeSerpiente -= 0.022;
+                        }
+
+                        if (AnimYSerp) {
+                            serpiente.scale[1] = 15
+
+                        } else {
+                            serpiente.scale[1] = -15
+
+                        }
+
+                        if (serpiente.isNextMove) {
+                            serpiente.return();
+                        }
+
+                        //Detecta colision
+                        if (distance(PX, PY, SX, SY) < 25) {
+                            stage.removeChild(player);
+                            player = null
+                            console.log("Te mordieron, reinicia con R");
+                            state = ST_OVER;
+                        }
+                    }
+                })
+            }
+
+            gl.uniformMatrix3fv(loc_u_projection, false, mt_proj);
+            stage.draw()
+            requestAnimationFrame(OnLoop);
+        }
+
+        function initWebGL(canvas) {
+            gl = canvas.getContext("webgl2");
+
+            if (!gl) {
+                alert("No se pudo iniciar WebGL");
+            }
+
+            console.log(gl.getParameter(gl.VERSION));
+            console.log(gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+        }
+
+        //funcion para calcular la distancia entre el player y otro objeto
+        function distance(playerX, playerY, enemyX, enemyY) {
+            var distance = Math.sqrt((enemyX - playerX) * (enemyX - playerX) + (enemyY - playerY) * (enemyY - playerY))
+            return distance
+        }
+
+        //funcion para generar un numero aleatorio entre dos valores
+        function randmNumber(min, max) {
+            return Math.round(Math.random() * (max - min) + min);
+        }
+
+    </script>
+</body>
+</html>
